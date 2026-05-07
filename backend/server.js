@@ -3,10 +3,12 @@ import bodyParser from 'body-parser';
 import express from 'express';
 import session from 'express-session';
 import path from 'path';
-import {sql, cassandra} from './db.js';
+import {sql, cassandra, neo} from './db.js';
+import { fileURLToPath } from 'url';
 
 const app = express();
-const __dirname = new URL('.', import.meta.url).pathname;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 app.use(express.static(path.join(__dirname, '../frontend')));
 app.use(express.json());
 app.use(bodyParser.urlencoded({extended:false}));
@@ -54,6 +56,10 @@ app.get('/emprestar',async (req,res)=>{
 	if(!req.session.uid) res.redirect('/login');
 	else if(req.session.adm) res.sendFile(path.resolve('../frontend/view/emprestar.html'),{});
 	else res.status(500).json({success:false, mensagem: "Acesso não autorizado"});
+});
+app.get('/recomendados',async (req,res)=>{
+	if(!req.session.uid) res.redirect('/login');
+	else if(req.session.adm) res.sendFile(path.resolve('../frontend/view/recomendados.html'),{});
 });
 
 app.get('/session',(req,res) =>{
@@ -132,19 +138,73 @@ app.post('/login', async (req,res) => {
 });
 
 app.post('/cadastrar',async (req,res) => {
+
 	const { usuario, email, senha, genero } = req.body;
-	console.log(usuario,email,senha,genero);
+
+	let session;
+
 	try{
+
 		const result = await sql`
-			INSERT INTO "Usuarios" (usuario, email, senha, genero)
-			VALUES (${usuario}, ${email}, ${senha}, ${genero})
+			INSERT INTO "Usuarios" (
+				usuario,
+				email,
+				senha,
+				genero
+			)
+			VALUES (
+				${usuario},
+				${email},
+				${senha},
+				${genero}
+			)
+			RETURNING "UID"
 		`;
-		res.json({success:true});
-	} catch(err){
-		if(err.code === '23505'){ // PostgreSQL unique violation
-			res.status(400).json({ success: false, mensagem: 'Email já cadastrado!' });
-		} else{
-			res.status(500).json({ success: false, mensagem: err.message });
+
+		const uid = result[0].UID;
+
+		session = neo.session();
+
+		await session.run(`
+			MERGE (u:Usuario {uid: $uid})
+
+			SET u.usuario = $usuario,
+				u.email = $email,
+				u.genero = $genero
+		`,{
+			uid,
+			usuario,
+			email,
+			genero
+		});
+
+		res.json({
+			success:true
+		});
+
+	}catch(err){
+
+		console.log(err);
+
+		if(err.code === '23505'){
+
+			res.status(400).json({
+				success: false,
+				mensagem: 'Email já cadastrado!'
+			});
+
+		}else{
+
+			res.status(500).json({
+				success: false,
+				mensagem: err.message
+			});
+		}
+
+	}finally{
+
+		if(session){
+			await session.close();
 		}
 	}
 });
@@ -256,18 +316,72 @@ app.post('/registrar_genero',async (req,res) => {
 
 
 app.post('/registrar_livro',async (req,res) => {
+
 	const {nome, autor, genero, descricao} = req.body;
+
+	let session;
+
 	try{
+
 		const result = await sql`
 			INSERT INTO "Livros" (nome, autor, genero, descricao)
 			VALUES (${nome}, ${autor}, ${genero}, ${descricao})
+			RETURNING "LID"
 		`;
-		res.json({success:true, mensagem: 'Livro cadastrado' });
+
+		const lid = result[0].LID;
+
+		//console.log(result);
+		//console.log(lid);
+
+		session = neo.session();
+
+		await session.run(`
+			MERGE (l:Livro {lid: $lid})
+			SET l.nome = $nome
+
+			MERGE (a:Autor {nome: $autor})
+			MERGE (g:Genero {nome: $genero})
+
+			MERGE (l)-[:DO_AUTOR]->(a)
+			MERGE (l)-[:DO_GENERO]->(g)
+		`,{
+			lid,
+			nome,
+			autor,
+			genero
+		});
+
+		console.log("nó criado");
+
+		res.json({
+			success:true,
+			mensagem: 'Livro cadastrado'
+		});
+
 	} catch(err){
+
+		console.log(err);
+
 		if(err.code === '23505'){
-			res.status(400).json({ success: false, mensagem: 'Livro já cadastrado!' });
-		} else{
-			res.status(500).json({ success: false, mensagem: err.message });
+
+			res.status(400).json({
+				success: false,
+				mensagem: 'Livro já cadastrado!'
+			});
+
+		}else{
+
+			res.status(500).json({
+				success: false,
+				mensagem: err.message
+			});
+		}
+
+	} finally{
+
+		if(session){
+			await session.close();
 		}
 	}
 });
@@ -310,6 +424,7 @@ app.post('/reservar', async (req,res) => {
 
 app.post('/emprestar', async (req,res) => {
 	const { uid, cid } = req.body;
+	let session;
 	try{
 		const id = await sql`
 				SELECT *
@@ -365,11 +480,34 @@ app.post('/emprestar', async (req,res) => {
 						AND "LID" = ${lid};
 				`;
 			});
+
+			session = neo.session();
+
+			await session.executeWrite(tx =>
+				tx.run(`
+					MERGE (u:Usuario {uid: $uid})
+
+					MERGE (l:Livro {lid: $lid})
+
+					MERGE (u)-[:EMPRESTOU]->(l)
+				`,{
+					uid,
+					lid,
+				})
+			);
+
+			console.log('emprestimo registrado no neo4j');
+
 			console.log('alo');
 			res.json({success:true, mensagem: 'Livro emprestado' });
 		}
 	} catch(err){
 		res.status(500).json({ success: false, mensagem: err.message });
+	} finally{
+
+		if(session){
+			await session.close();
+		}
 	}
 });
 
@@ -442,11 +580,71 @@ app.post('/historico', async (req,res) => { // cassandra
 
 // NEO4J
 
-app.post('/recomendados', async (req,res) => {
-	const { lid } = req.body;
+app.get('/api/recomendados/:uid', async (req,res) => {
+
+	const { uid } = req.params;
+
+	console.log("uid recebido:", uid);
+
+	let session;
+
 	try{
-	} catch(err){
-		res.status(500).json({ success: false, mensagem: err.message });
+
+		session = neo.session();
+
+		const result = await session.run(`
+			MATCH (u:Usuario {uid: $uid})-[:EMPRESTOU]->(l:Livro)
+
+			MATCH (outro:Usuario)-[:EMPRESTOU]->(l)
+
+			WHERE outro.uid <> $uid
+
+			MATCH (outro)-[:EMPRESTOU]->(rec:Livro)
+
+			WHERE rec.lid <> l.lid
+
+			AND NOT EXISTS {
+				(u)-[:EMPRESTOU]->(rec)
+			}
+
+			RETURN DISTINCT
+				rec.lid AS lid,
+				rec.nome AS nome,
+				COUNT(*) AS score
+
+			ORDER BY score DESC
+			LIMIT 20
+		`,{
+			uid: String(uid)
+		});
+
+		console.log("records:", result.records);
+
+		const livros = result.records.map(r => ({
+			lid: r.get('lid'),
+			nome: r.get('nome'),
+			score: Number(r.get('score'))
+		}));
+
+		res.json({
+			success:true,
+			livros
+		});
+
+	}catch(err){
+
+		console.log(err);
+
+		res.status(500).json({
+			success:false,
+			mensagem: err.message
+		});
+
+	}finally{
+
+		if(session){
+			await session.close();
+		}
 	}
 });
 
@@ -472,5 +670,3 @@ app.get('/health', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Servidor rodando em http://localhost:${PORT}`);
 });
-
-
