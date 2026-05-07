@@ -3,7 +3,7 @@ import bodyParser from 'body-parser';
 import express from 'express';
 import session from 'express-session';
 import path from 'path';
-import {sql, cassandra} from './db.js';
+import {sql, cql} from './db.js';
 
 const app = express();
 const __dirname = new URL('.', import.meta.url).pathname;
@@ -23,33 +23,41 @@ const startTime = Date.now();
 app.get('/',async (req,res)=>{
 	res.sendFile(path.resolve('../frontend/view/index.html'),{});
 });
+
 app.get('/home',async (req,res)=>{
 	res.sendFile(path.resolve('../frontend/view/index.html'),{});
 });
+
 app.get('/signin',async (req,res)=>{
 	res.sendFile(path.resolve('../frontend/view/cadastro.html'),{});
 });
+
 app.get('/login',async (req,res)=>{
 	res.sendFile(path.resolve('../frontend/view/login.html'),{});
 });
+
 app.get('/fila',async (req,res)=>{
 	if(!req.session.uid) res.redirect('/login');
 	else res.sendFile(path.resolve('../frontend/view/fila.html'),{});
 });
+
 app.get('/historico',async (req,res)=>{
 	if(!req.session.uid) res.redirect('/login');
-	else res.sendFile(path.resolve('../frontend/view/cadastro_livro.html'),{});
+	else res.sendFile(path.resolve('../frontend/view/historico.html'),{});
 });
+
 app.get('/cadastro',async (req,res)=>{
 	if(!req.session.uid) res.redirect('/login');
 	else if(req.session.adm) res.sendFile(path.resolve('../frontend/view/cadastro_livro.html'),{});
 	else res.status(500).json({success:false, mensagem: "Acesso não autorizado"});
 });
+
 app.get('/usuarios',async (req,res)=>{
 	if(!req.session.uid) res.redirect('/login');
 	else if(req.session.adm) res.sendFile(path.resolve('../frontend/view/usuarios.html'),{});
 	else res.status(500).json({success:false, mensagem: "Acesso não autorizado"});
 });
+
 app.get('/emprestar',async (req,res)=>{
 	if(!req.session.uid) res.redirect('/login');
 	else if(req.session.adm) res.sendFile(path.resolve('../frontend/view/emprestar.html'),{});
@@ -322,13 +330,11 @@ app.post('/reservar', async (req,res) => {
 			VALUES (${lid}, ${uid})
 		`;
 
-		const livro = await sql`
-			SELECT * FROM "Livros"
-				WHERE "LID" = ${lid}
-		`;
-
 		const f = await sql`
 			SELECT DISTINCT
+				"Livros".nome AS nome_livro,
+				"Livros".autor AS autor_livro,
+				"Livros".genero AS genero_livro,
 				"Fila"."UID" AS "UID",
 				"Fila"."LID" AS "LID",
 				COALESCE(posicao,0) AS posicao,
@@ -351,19 +357,25 @@ app.post('/reservar', async (req,res) => {
 					GROUP BY "LID"
 				) AS d
 					ON d."LID" = "Fila"."LID"
+				JOIN "Livros"
+					ON "Livros"."LID" = "Fila"."LID"
 			WHERE "Fila"."UID" = ${uid}
 				AND "Fila"."LID" = ${lid}
 		`;
 
-		const fila = cassandra.collection("fila_usuario");
-		await fila.insertOne({
-			uid,
-			lid,
-			nome_livro: livro[0].nome,
-			autor_livro: livro[0].autor,
-			genero_livro: livro[0].genero,
-			status: (f[0].posicao <= f[0].disponiveis ? 'Disponivel' : 'Aguardando')
-		});
+		await cql.execute(`
+				INSERT INTO fila_usuario (uid, lid, nome_livro, autor_livro, genero_livro,status)
+				VALUES (?, ?, ?, ?, ?, ?)
+			`, [
+				uid,
+				lid,
+				f[0].nome_livro,
+				f[0].autor_livro,
+				f[0].genero_livro,
+				(f[0].posicao <= f[0].disponiveis ? 'Disponivel' : 'Aguardando')
+			], { prepare: true }
+		);
+		console.log("insert cassandra");
 
 		res.json({success:true, mensagem: 'Usuario adicionado a fila de espera' });
 	} catch(err){
@@ -419,7 +431,7 @@ app.post('/emprestar', async (req,res) => {
 			WHERE "Fila"."UID" = ${uid}
 				AND "Fila"."LID" = ${lid}
 		`;
-		console.log("fila",f);
+
 		if(f.length == 0){
 			res.json({success:false, mensagem: 'Não foi possivel emprestar o livro.\nLivro reservado por outra pessoa, ou Usuario não fez reserva.' });
 		} else if(f[0].posicao <= f[0].disponiveis){
@@ -440,25 +452,34 @@ app.post('/emprestar', async (req,res) => {
 					RETURNING *;
 				`;
 			});
-			console.log(emprestimo);
-			const fila = cassandra.collection("fila_usuario");
-			await fila.deleteOne({ uid, lid });
 
-			console.log("fila foi");
-			const emprestimos = cassandra.collection("emprestimos");
-			await emprestimos.insertOne({
-				eid: emprestimo[0].EID,
-				uid,
-				cid,
-				nome_livro: livro[0].nome,
-				autor_livro: livro[0].autor,
-				genero_livro: livro[0].genero,
-				emprestimo: emprestimo[0].emprestimo,
-				prazo: emprestimo[0].prazo,
-				devolucao: null,
-				status: 'emprestado'
-			});
-			console.log('alo');
+			await cql.execute(`
+					DELETE FROM fila_usuario
+					WHERE uid = ?
+					AND lid = ?
+				`, [
+					uid,
+					lid,
+				], { prepare: true }
+			);
+
+			await cql.execute(`
+					INSERT INTO emprestimos (eid, uid, cid, nome_livro, autor_livro, genero_livro, emprestimo, prazo, devolucao, status)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				`, [
+					emprestimo[0].EID,
+					uid,
+					cid,
+					livro[0].nome,
+					livro[0].autor,
+					livro[0].genero,
+					emprestimo[0].emprestimo,
+					emprestimo[0].prazo,
+					null,
+					'emprestado'
+				], { prepare: true }
+			);
+			
 			res.json({success:true, mensagem: 'Livro emprestado' });
 		}
 	} catch(err){
@@ -482,7 +503,7 @@ app.post('/devolver', async (req,res) => {
 				WHERE "UID" = ${uid}
 					AND "CID" = ${cid}
 					AND "devolucao" IS NULL
-				RETURNING "prazo", DATE_PART('day', now() - "prazo") AS dias_atraso;
+				RETURNING "emprestimo", "devolucao", "prazo", DATE_PART('day', now() - "prazo") AS dias_atraso;
 			`;
 		});
 		console.log(result);
@@ -492,6 +513,23 @@ app.post('/devolver', async (req,res) => {
 				mensagem: 'Nenhum empréstimo ativo encontrado para esse livro.',
 			});
 		}
+
+		await cql.execute(`
+				UPDATE emprestimos
+				SET status = 'devolvido', devolucao = ?
+				WHERE uid = ?
+				AND emprestimo = ?
+				AND cid = ?
+			`,
+			[
+				result[0].devolucao,
+				uid,
+				result[0].emprestimo,
+				cid
+			],
+			{prepare: true}
+		);
+
 		const atraso = result[0].dias_atraso;
 		const mensagem = ( atraso > 0
 			? `Livro devolvido com ${atraso} dia(s) de atraso.`
@@ -512,27 +550,90 @@ app.post('/devolver', async (req,res) => {
 app.get('/fila_usuario', async (req,res) => { // cassandra
 	const { uid } = req.session;
 	try{
-		const fila = cassandra.collection("fila_usuario");
-		console.log(fila);
-		const dataFila = await fila.find({ uid }).toArray();
-		console.log(dataFila);
-		res.json({ sucess: true, dataFila ,mensagem: "Fila lida com sucesso" });
+		const data = await cql.execute(`
+				SELECT * FROM fila_usuario
+				WHERE uid = ?
+			`,
+			[ uid ],
+			{ prepare: true }
+		);
+
+		res.json({ sucess: true, dataFila:data.rows ,mensagem: "Fila lida com sucesso" });
 	} catch(err){
 		res.status(500).json({ success: false, mensagem: err.message });
 	}
 });
 
-app.post('/emprestados', async (req,res) => { // cassandra
-	const { uid } = req.body;
+app.get('/emprestimos_usuario', async (req,res) => { // cassandra
+	const { uid } = req.session;
 	try{
+		console.log("/emprestimo_usuario");
+		const data = await cql.execute(`
+				SELECT * FROM emprestimos
+				WHERE uid = ?
+				ORDER BY emprestimo DESC
+			`,
+			[ uid ],
+			{ prepare: true }
+		);
+
+		for(const e of data.rows){
+			const agora = new Date();
+			if(e.prazo < agora && e.status != 'devolvido'){
+				e.status = 'atrasado';
+				await cql.execute(`
+						UPDATE emprestimos
+						SET status = 'atrasado'
+						WHERE uid = ?
+						AND emprestimo = ?
+						AND cid = ?
+					`,
+					[ uid, e.emprestimo, e.cid ],
+					{prepare: true}
+				);
+			}
+		}
+
+		console.log(data.rows);
+		res.json({ sucess: true, dataEmprestimo: data.rows,mensagem: "Fila lida com sucesso" });
 	} catch(err){
 		res.status(500).json({ success: false, mensagem: err.message });
 	}
 });
 
 app.post('/historico', async (req,res) => { // cassandra
-	const { uid } = req.body;
+	const { uid } = (req.body.uid == undefined ? req.session : req.body);
+	console.log(uid);
 	try{
+		const data = await cql.execute(`
+				SELECT * FROM emprestimos
+				WHERE uid = ?
+				ORDER BY emprestimo DESC
+			`,
+			[ uid ],
+			{ prepare: true }
+		);
+		console.log(data);
+
+		for(const e of data.rows){
+			const agora = new Date();
+			if(e.prazo < agora && e.status != 'devolvido'){
+				e.status = 'atrasado';
+				await cql.execute(`
+						UPDATE emprestimos
+						SET status = 'atrasado'
+						WHERE uid = ?
+						AND emprestimo = ?
+						AND cid = ?
+					`,
+					[ uid, e.emprestimo, e.cid ],
+					{prepare: true}
+				);
+			}
+		}
+
+		console.log("rows",data.rows);
+		res.json({ sucess: true, dataHistorico: data.rows ,mensagem: "Fila lida com sucesso" });
 	} catch(err){
 		res.status(500).json({ success: false, mensagem: err.message });
 	}

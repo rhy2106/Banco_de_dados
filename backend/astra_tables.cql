@@ -1,3 +1,7 @@
+USE default_keyspace;
+DROP TABLE fila_usuario;
+DROP TABLE emprestimos;
+
 CREATE TABLE fila_usuario (
     uid uuid,
     lid uuid,
@@ -11,7 +15,7 @@ CREATE TABLE fila_usuario (
 CREATE TABLE emprestimos (
     uid uuid,
     eid uuid,
-    lid uuid,
+    cid uuid,
     nome_livro text,
     autor_livro text,
     genero_livro text,
@@ -19,6 +23,6 @@ CREATE TABLE emprestimos (
     prazo timestamp,
     devolucao timestamp,
     status text,
-    PRIMARY KEY ((uid), emprestimo, eid)
+    PRIMARY KEY ((uid), emprestimo, cid)
 )
 WITH CLUSTERING ORDER BY (emprestimo DESC);
