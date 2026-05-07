@@ -20,8 +20,8 @@ async function session(){
 	const {login,user} = await res.json();
 
 	const c_not = ['home','signin','login'];
-	const c_user = ['home','fila','historico','logout'];
-	const c_adm = ['home','emprestar','cadastro','usuarios','logout'];
+	const c_user = ['home','fila','historico','recomendados','logout'];
+	const c_adm = ['home','fila','emprestar','cadastro','usuarios','recomendados','logout'];
 	
 	console.log(login,user);
 

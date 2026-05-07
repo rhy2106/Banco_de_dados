@@ -1,13 +1,16 @@
 body{
 	margin:0px;
 	text-align:center;
+	background-color: #565656;
+	color: white;
+	text-align:center;
 }
 
 #adm{
 	display: none;
 }
 #header{
-	background-color: #565656;
+	background-color: #363636;
 	height: 100;
 	display: flex;
 	flex-direction: row;
@@ -22,5 +25,12 @@ body{
 	text-decoration:none;
 	border:solid 2px white;
 	border-radius: 5px;
-	background-color: #363636;
+	background-color: #565656;
 }
+
+a{
+	margin:10px;
+	color: white;
+	text-decoration: none;
+}
+

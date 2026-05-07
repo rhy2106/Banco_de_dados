@@ -20,6 +20,7 @@ function carregar_emprestimos(lista){
 	emprestimos.replaceChildren();
 	for(let i = 0; i < lista.length; i++){
 		console.log(lista[i]);
+		if(lista[i].status == 'devolvido') continue;
 		const item = document.createElement("div");
 		const pre = document.createElement("pre");
 		pre.textContent = `Nome: ${lista[i].nome_livro}\n` +
@@ -44,14 +45,14 @@ async function carregar(){
 	console.log(dataFila);
 	if( dataFila != undefined ) carregar_fila(dataFila);
 
-	// const resEmprestimo = await fetch(`/emprestimos_usuario`,{
-	// 	method: 'GET',
-	// 	headers: { 'Content-Type': 'application/json' },
-	// 	credentials: 'include',
-	// });
+	const resEmprestimo = await fetch(`/emprestimos_usuario`,{
+		method: 'GET',
+		headers: { 'Content-Type': 'application/json' },
+		credentials: 'include',
+	});
 
-	// const dataEmprestimo = await resEmprestimo.json();
-	// if( dataEmprestimo != undefined ) carregar_emprestimos(dataEmprestimo);
+	const { dataEmprestimo } = await resEmprestimo.json();
+	if( dataEmprestimo != undefined ) carregar_emprestimos(dataEmprestimo);
 
 }
 

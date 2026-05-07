@@ -67,7 +67,7 @@ app.get('/emprestar',async (req,res)=>{
 });
 app.get('/recomendados',async (req,res)=>{
 	if(!req.session.uid) res.redirect('/login');
-	else if(req.session.adm) res.sendFile(path.resolve('../frontend/view/recomendados.html'),{});
+	else res.sendFile(path.resolve('../frontend/view/recomendados.html'),{});
 });
 
 app.get('/session',(req,res) =>{
