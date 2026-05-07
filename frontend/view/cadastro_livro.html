@@ -1,0 +1,54 @@
+<html lang="en">
+	<head>
+		<meta charset="UTF-8">
+		<title></title>
+		<link href="../styles/header.css" rel="stylesheet">
+	</head>
+	<body>
+		<div id="header"></div>
+		<div class="container">
+			<h1> Cadastro Genero </h1>
+			<div>
+				<label> Genero: </label>
+				<input type="text" id="genero" name="genero"> </input>
+			</div>
+			<button onclick="cadastro_genero()"> Cadastrar </button>
+			<div id="res_genero"></div>
+			<h1> Cadastro Autor </h1>
+			<div>
+				<label> Autor: </label>
+				<input type="text" id="autor" name="autor"> </input>
+			</div>
+			<button onclick="cadastro_autor()"> Cadastrar </button>
+			<div id="res_autor"></div>
+			<h1> Cadastro Livro </h1>
+			<div>
+				<label> Nome: </label>
+				<input type="text" id="nome" name="nome"> </input>
+			</div>
+			<div>
+				<label> Descricao: </label>
+				<input type="text" id="descricao" name="descricao"> </input>
+			</div>
+			<div>
+				<label> Genero: </label>
+				<input type="text" id="genero_livro" name="genero_livro"> </input>
+			</div>
+			<div>
+				<label> Autor: </label>
+				<input type="text" id="autor_livro" name="autor_livro"> </input>
+			</div>
+			<button onclick="cadastro_livro()"> Cadastrar </button>
+			<div id="res_livro"></div>
+			<h1> Cadastro Copia </h1>
+			<div>
+				<label> LID: </label>
+				<input type="text" id="lid" name="lid"> </input>
+			</div>
+			<button onclick="cadastro_copia()"> Cadastrar </button>
+			<div id="res_copia"></div>
+		</div>	
+		<script src="../src/cadastro_livro.js" type="text/javascript"></script>
+		<script src="../src/header.js" type="text/javascript"></script>
+	</body>
+</html>
