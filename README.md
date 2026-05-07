@@ -13,7 +13,7 @@ O app foi desenvolvido como projeto na disciplina `CCD410-PERFORMANCE E TUNNING 
 # Tecnologias Utilizadas
 - **Backend:** Node.js, Express, JavaScript
 - **Frontend:** HTML CSS JavaScript
-- **Banco de Dados:** PostgreSQL (Supabase), Cassandra (Astra / datastax), Neo4J
+- **Banco de Dados:** PostgreSQL (Supabase), Cassandra (Astra / datastax), Neo4J (Aura)
 - **Outros:** dotenv
 
 # Como rodar localmente
@@ -27,6 +27,9 @@ O app foi desenvolvido como projeto na disciplina `CCD410-PERFORMANCE E TUNNING 
 > arquivo .env
 ```
 SUPABASE_URL=${SEU_URL}
+NEO4J_URI=${SEU_URI}
+NEO4J_USER=${SEU_USER}
+NEO4J_PASSWORD=${SUA_SENHA}
 ```
 ## Clonar repositorio
 ```
@@ -40,7 +43,7 @@ npm install
 ```
 > Obs: 
 >
-> Conecte com o seu proprio banco de dados
+> Conecte com o seu proprio banco de dados(supabase e Neo4j)
 
 ## Rodar o banco de dados:
 1. utilize o arquivo `Banco_de_dados/backend/supabase_tables.sql`, para criar as tabelas do postgreSQL
