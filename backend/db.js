@@ -1,14 +1,13 @@
-import 'dotenv/config'
-import postgres from 'postgres'
-import { DataAPIClient } from "@datastax/astra-db-ts";
+import 'dotenv/config';
+import postgres from 'postgres';
+import cassandra from 'cassandra-driver';
 import neo4j from 'neo4j-driver';
 
 const sql = postgres(process.env.SUPABASE_URL)
-const client = new DataAPIClient();
-const cassandra = client.db(
-	process.env.ASTRA_URL,
-	{token: process.env.ASTRA_TOKEN}
-);
+
+const cloud = { secureConnectBundle: './secure-connect-teste.zip' };
+const authProvider = new cassandra.auth.PlainTextAuthProvider('token', process.env.ASTRA_TOKEN);
+const cql = new cassandra.Client({ cloud, authProvider, keyspace: 'default_keyspace'});
 
 const neo = neo4j.driver(
     process.env.NEO4J_URI,
@@ -25,5 +24,5 @@ try{
 }finally{
     await session.close();
 }
-export {sql, cassandra, neo}
+export {sql, cql, neo}
 
