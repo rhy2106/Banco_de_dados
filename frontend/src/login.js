@@ -11,6 +11,7 @@ async function login(){
 
 	const data = await res.json();
 	if(data.success === true){
+		localStorage.setItem("uid", data.uid);
 		await fetch('/session',{credentials:'include'});
 		window.location.href = "/home";
 	}
