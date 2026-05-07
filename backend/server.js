@@ -34,7 +34,7 @@ app.get('/login',async (req,res)=>{
 });
 app.get('/fila',async (req,res)=>{
 	if(!req.session.uid) res.redirect('/login');
-	else res.sendFile(path.resolve('../frontend/view/cadastro_livro.html'),{});
+	else res.sendFile(path.resolve('../frontend/view/fila.html'),{});
 });
 app.get('/historico',async (req,res)=>{
 	if(!req.session.uid) res.redirect('/login');
@@ -93,11 +93,33 @@ app.get('/livro', (req,res)=>{
 app.post('/livro', async (req,res)=>{
 	const lid = req.body.lid;
 	try{
+		console.log("entrou /livro");
 		const result = await sql`
-			SELECT *
+			SELECT 
+				"Livros"."LID" AS "LID",
+				"Livros".nome AS nome,
+				"Livros".autor AS autor,
+				"Livros".genero AS genero,
+				"Livros".descricao AS descricao,
+				COALESCE(q.quantidade,0) AS quantidade,
+				COALESCE(d.disponiveis,0) AS disponiveis
 			FROM "Livros"
-			WHERE "LID" = ${lid}
+				LEFT JOIN (
+					SELECT "LID", COUNT(*) AS quantidade
+						FROM "Copias"
+					GROUP BY "LID"
+				) AS q
+					ON q."LID" = "Livros"."LID"
+				LEFT JOIN (
+					SELECT "LID", COUNT(*) AS disponiveis
+						FROM "Copias"
+					WHERE "status" = 'disponivel'
+					GROUP BY "LID"
+				) AS d
+					ON d."LID" = "Livros"."LID"
+			WHERE "Livros"."LID" = ${lid}
 		`
+		console.log("livro",result);
 		res.json({livro:result[0]});
 	} catch(err){
 		return res.status(500).json({success: false, mensagem: err.message});
@@ -289,36 +311,23 @@ app.post('/registrar_copia', async (req,res) => {
 		}
 	}
 });
+
 app.post('/reservar', async (req,res) => { 
 	const { uid } = req.session;
 	const { lid } = req.body;
 	console.log(uid, lid);
 	try{
-		const result = await sql`
+		await sql`
 			INSERT INTO "Fila" ("LID", "UID")
 			VALUES (${lid}, ${uid})
 		`;
-		res.json({success:true, mensagem: 'Usuario adicionado a fila de espera' });
-	} catch(err){
-		if(err.code === '23505'){
-			res.status(400).json({ success: false, mensagem: 'o usuario já está na fila de espera!' });
-		} else{
-			res.status(500).json({ success: false, mensagem: err.message });
-		}
-	}
-});
 
-app.post('/emprestar', async (req,res) => {
-	const { uid, cid } = req.body;
-	try{
-		const id = await sql`
-				SELECT *
-				FROM "Copias"
-				WHERE "CID" = ${cid}
+		const livro = await sql`
+			SELECT * FROM "Livros"
+				WHERE "LID" = ${lid}
 		`;
-		console.log("id",id);
-		const lid = id[0].LID;
-		const fila = await sql`
+
+		const f = await sql`
 			SELECT DISTINCT
 				"Fila"."UID" AS "UID",
 				"Fila"."LID" AS "LID",
@@ -345,15 +354,76 @@ app.post('/emprestar', async (req,res) => {
 			WHERE "Fila"."UID" = ${uid}
 				AND "Fila"."LID" = ${lid}
 		`;
-		console.log("fila",fila);
-		if(fila.length == 0){
+
+		const fila = cassandra.collection("fila_usuario");
+		await fila.insertOne({
+			uid,
+			lid,
+			nome_livro: livro[0].nome,
+			autor_livro: livro[0].autor,
+			genero_livro: livro[0].genero,
+			status: (f[0].posicao <= f[0].disponiveis ? 'Disponivel' : 'Aguardando')
+		});
+
+		res.json({success:true, mensagem: 'Usuario adicionado a fila de espera' });
+	} catch(err){
+		if(err.code === '23505'){
+			res.status(400).json({ success: false, mensagem: 'o usuario já está na fila de espera!' });
+		} else{
+			res.status(500).json({ success: false, mensagem: err.message });
+		}
+	}
+});
+
+app.post('/emprestar', async (req,res) => {
+	const { uid, cid } = req.body;
+	try{
+		const livro = await sql`
+				SELECT 
+					"Copias"."CID" AS "CID",
+					"Copias".status AS status,
+					"Copias"."LID" AS "LID",
+					"Livros".nome AS nome,
+					"Livros".autor AS autor,
+					"Livros".genero AS genero
+				FROM "Copias"
+					JOIN "Livros"
+						ON "Livros"."LID" = "Copias"."LID"
+				WHERE "CID" = ${cid}
+		`;
+		const lid = livro[0].LID;
+		const f = await sql`
+			SELECT DISTINCT
+				"Fila"."UID" AS "UID",
+				"Fila"."LID" AS "LID",
+				COALESCE(posicao,0) AS posicao,
+				COALESCE(disponiveis,0) AS disponiveis
+			FROM "Fila"
+				JOIN (
+					SELECT
+						"UID",
+						"LID",
+						ROW_NUMBER() OVER (PARTITION BY "LID" ORDER BY "data" ASC) AS posicao
+					FROM "Fila"
+					WHERE "LID" = ${lid}
+				) AS p
+					ON p."UID" = "Fila"."UID"
+						AND p."LID" = "Fila"."LID"
+				LEFT JOIN (
+					SELECT "LID", COUNT(*) AS disponiveis
+						FROM "Copias"
+					WHERE "status" = 'disponivel'
+					GROUP BY "LID"
+				) AS d
+					ON d."LID" = "Fila"."LID"
+			WHERE "Fila"."UID" = ${uid}
+				AND "Fila"."LID" = ${lid}
+		`;
+		console.log("fila",f);
+		if(f.length == 0){
 			res.json({success:false, mensagem: 'Não foi possivel emprestar o livro.\nLivro reservado por outra pessoa, ou Usuario não fez reserva.' });
-		} else if(fila[0].posicao <= fila[0].disponiveis){
-			await sql.begin(async tx => {
-				await tx`
-					INSERT INTO "Emprestimos" ("UID", "CID")
-					VALUES (${uid}, ${cid});
-				`;
+		} else if(f[0].posicao <= f[0].disponiveis){
+			const emprestimo = await sql.begin(async tx => {
 				await tx`
 					UPDATE "Copias"
 						SET "status" = 'indisponivel'
@@ -364,6 +434,29 @@ app.post('/emprestar', async (req,res) => {
 					WHERE "UID" = ${uid}
 						AND "LID" = ${lid};
 				`;
+				return await tx`
+					INSERT INTO "Emprestimos" ("UID", "CID")
+					VALUES (${uid}, ${cid})
+					RETURNING *;
+				`;
+			});
+			console.log(emprestimo);
+			const fila = cassandra.collection("fila_usuario");
+			await fila.deleteOne({ uid, lid });
+
+			console.log("fila foi");
+			const emprestimos = cassandra.collection("emprestimos");
+			await emprestimos.insertOne({
+				eid: emprestimo[0].EID,
+				uid,
+				cid,
+				nome_livro: livro[0].nome,
+				autor_livro: livro[0].autor,
+				genero_livro: livro[0].genero,
+				emprestimo: emprestimo[0].emprestimo,
+				prazo: emprestimo[0].prazo,
+				devolucao: null,
+				status: 'emprestado'
 			});
 			console.log('alo');
 			res.json({success:true, mensagem: 'Livro emprestado' });
@@ -416,9 +509,14 @@ app.post('/devolver', async (req,res) => {
 
 // CASSANDRA
 
-app.post('/fila', async (req,res) => { // cassandra
-	const { uid } = req.body;
+app.get('/fila_usuario', async (req,res) => { // cassandra
+	const { uid } = req.session;
 	try{
+		const fila = cassandra.collection("fila_usuario");
+		console.log(fila);
+		const dataFila = await fila.find({ uid }).toArray();
+		console.log(dataFila);
+		res.json({ sucess: true, dataFila ,mensagem: "Fila lida com sucesso" });
 	} catch(err){
 		res.status(500).json({ success: false, mensagem: err.message });
 	}
