@@ -5,6 +5,7 @@ O projeto é uma aplicação de gerenciamento de biblioteca, que gerencia as res
 # Sumario
 - [Objetivos/Motivações](#objetivos-e-motivações)
 - [Tecnologias Utilizadas](#tecnologias-utilizadas)
+- [Divisão dos Bancos](#divisão-dos-bancos-de-dados)
 - [Como rodar localmente](#como-rodar-localmente)
 - [Autores](#autores)
 
@@ -16,6 +17,27 @@ O app foi desenvolvido como projeto na disciplina `CCD410-PERFORMANCE E TUNNING 
 - **Frontend:** HTML CSS JavaScript
 - **Banco de Dados:** PostgreSQL (Supabase), Cassandra (Astra / datastax), Neo4J (Aura)
 - **Outros:** dotenv
+
+# Divisão dos Bancos de dados
+
+## PostgreSQL
+O PostgreSQL foi utilizado para armazenar os dados de forma consistente.
+Garantindo que não seja possivel duas pessoas pegarem o mesmo livro ao mesmo tempo no sistema.
+
+## Cassandra
+O Cassandra foi utilizado para fazer as queries da fila, livros emprestados e historico do usuario.
+O Cassandra foi escolhido para a realização dessa parte do projeto, pois não é necessario consistencia nessa parte.
+As fila não precisa sempre estar no estado mais atualizado, pois essa informação não é levada em consideração para o emprestimo e devolução dos livros.
+Apenas notifica o usuario que está disponivel para ser retirado.
+É possivel tambem verificar os Livros que foram pegos emprestados.
+Essa query mostra o status do livro, ou seja, (emprestado, atrasado, devolvido),
+De modo que apenas mostra os livros que ainda não foi devolvido.
+E o histório mostra todos emprestimos que foram feitos, incluindo os emprestimos que ja foram devolvidos
+
+## Neo4J
+O Neo4J foi utilizado para armazenar as relações entre as pessoas e os livros.
+Para fazer as queries de recomendações.
+Recomendando para o usuario livros que foram lidos por outros usuarios, que leram o mesmo livro.
 
 # Como rodar localmente
 
